@@ -195,6 +195,7 @@ Group {
 		Argument<String>("client name", description:"the name of the client to revoke")
 	) { subnetName, clientName in
 		let database = try WireguardDatabase()
+		let interface = try! database.primaryInterfaceName()
 		let getSubnets = try database.getSubnets()
 		guard getSubnets[subnetName] != nil else {
 			print(Colors.Red("\(subnetName) is not a valid subnet name. please specify one of the following subnet names:"))
@@ -213,6 +214,14 @@ Group {
 		}
 		
 		let pubKey = clients[clientName]!.first!.publicKey
+		if try Command(command:"/usr/bin/wg set \(interface) peer \(pubKey) remove")!.runSync().succeeded == false {
+			print("!!failed to set new config with /usr/bin/wg")
+			exit(15)
+		}
+		if try Command(bash:"/usr/bin/wg-quick save \(interface)").runSync().succeeded == false {
+			print("!!failed to sync config")
+			exit(8)
+		}
 		try database.revokeClient(pubKey:pubKey)
 	}
 
