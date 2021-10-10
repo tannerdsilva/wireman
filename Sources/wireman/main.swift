@@ -37,7 +37,7 @@ Group {
 		Argument<String>("address", description:"the address to bind to"),
 		Argument<String>("port", description:"which port shall we listen on?")
 	) { bindAddress, portString in
-		let database = try WireguardDatabase()
+		let database = try! WireguardDatabase()
 		let app = HBApplication(configuration: .init(address: .hostname(bindAddress, port:Int(portString)!)))
 		app.router.get("/") { request -> HBResponse in
 			let string = "THis is a string"
