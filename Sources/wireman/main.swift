@@ -48,7 +48,7 @@ Group {
 			}
 			return HBResponse(status:.ok, headers:["Content-Type": "plain/text"], body:.byteBuffer(newBuffer))
 		}
-		try app.start()
+		try! app.start()
 		app.wait()
 	}
 	
