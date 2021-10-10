@@ -3,6 +3,7 @@ import Foundation
 import AddressKit
 
 private let homePath = URL(fileURLWithPath:String(cString:getpwuid(getuid())!.pointee.pw_dir))
+let buildVersion:UInt64 = 1
 
 class WireguardDatabase {
 	enum WireguardError:Error {
@@ -12,15 +13,15 @@ class WireguardDatabase {
 		case nameExistsInSubnet
 		case addressAlreadyAssigned
 	}
-
 	class func databasePath() -> String {
 		return homePath.appendingPathComponent(".wireman-db").path
 	}
 	enum Metadatas:String {
+		case dbVersion = "databaseVersion" //UInt64
 		case primaryInterface = "primaryWGInterface" //string
 		case server_endpoint_domain = "server_endpoint_domain" //String
 		case listenPort = "server_public_listenPort" //UInt16
-		case ipv4_scope = "server_ipv4_scope" //NetworkV4 where address == servers own internal IP
+		case ipv4_scope = "server_ipv4_scope" //(OPTIONAL) NetworkV4 where address == servers own internal IP
 		case ipv6_scope = "server_ipv6_scope" //networkV6 where address == servers own internal IP
 		case serverPublicKey = "server_public_key" //string
 	}
@@ -40,8 +41,12 @@ class WireguardDatabase {
 	func ipv6Scope() throws -> NetworkV6 {
 		return try self.metadata.get(type:NetworkV6.self, forKey:Metadatas.ipv6_scope.rawValue, tx:nil)!
 	}
-	func ipv4Scope() throws -> NetworkV4 {
-		return try self.metadata.get(type:NetworkV4.self, forKey:Metadatas.ipv4_scope.rawValue, tx:nil)!
+	func ipv4Scope() throws -> NetworkV4? {
+		do {
+			return try self.metadata.get(type:NetworkV4.self, forKey:Metadatas.ipv4_scope.rawValue, tx:nil)!
+		} catch LMDBError.notFound {
+			return nil
+		}
 	}
 	func getServerPublicKey() throws -> String {
 		return try self.metadata.get(type:String.self, forKey:Metadatas.serverPublicKey.rawValue, tx:nil)!
@@ -87,6 +92,21 @@ class WireguardDatabase {
 			let pub_ipv6 = try makeEnv.openDatabase(named:"pub_ipv6", flags:[.create], tx:someTrans)
 			let ipv6_pub = try makeEnv.openDatabase(named:"ipv6_pub", flags:[.create], tx:someTrans)
 			
+			func migrateDatabase(version:UInt64?) throws -> UInt64 {
+					switch version! {
+						case nil:
+							try meta.delete(key:Metadatas.ipv4_scope.rawValue, tx:someTrans)
+							return 1
+						//no other versions to handle at this time
+						default:
+							return 1
+					}
+			}
+			var curVersion:UInt64? = nil
+			repeat {
+				curVersion = try migrateDatabase(version:try? meta.get(type:UInt64.self, forKey:Metadatas.dbVersion.rawValue, tx:someTrans)!)
+			} while curVersion == buildVersion
+			
 			return [meta, subName_cidrV6, pub_sub, pub_name, pub_ipv6, ipv6_pub]
 		}
 		
@@ -99,12 +119,14 @@ class WireguardDatabase {
 	}
 	
 	//bootstrapping
-	func assignInitialConfiguration(primaryInterface:String, publicEndpoint:String, publicListenPort:UInt16, ipv4Scope:NetworkV4, ipv6Scope:NetworkV6, publicKey:String) throws {
+	func assignInitialConfiguration(primaryInterface:String, publicEndpoint:String, publicListenPort:UInt16, ipv4Scope:NetworkV4?, ipv6Scope:NetworkV6, publicKey:String) throws {
 		try env.transact(readOnly:false) { someTrans in
 			try self.metadata.set(value:primaryInterface, forKey:Metadatas.primaryInterface.rawValue, tx:someTrans)
 			try self.metadata.set(value:publicEndpoint, forKey:Metadatas.server_endpoint_domain.rawValue, tx:someTrans)
 			try self.metadata.set(value:publicListenPort, forKey:Metadatas.listenPort.rawValue, tx:someTrans)
-			try self.metadata.set(value:ipv4Scope, forKey:Metadatas.ipv4_scope.rawValue, tx:someTrans)
+			if (ipv4Scope != nil) {
+				try self.metadata.set(value:ipv4Scope!, forKey:Metadatas.ipv4_scope.rawValue, tx:someTrans)
+			}
 			try self.metadata.set(value:ipv6Scope, forKey:Metadatas.ipv6_scope.rawValue, tx:someTrans)
 			try self.metadata.set(value:publicKey, forKey:Metadatas.serverPublicKey.rawValue, tx:someTrans)
 		}
