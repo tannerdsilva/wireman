@@ -4,6 +4,8 @@ import SwiftSlash
 import AddressKit
 import TToolkit
 import RapidLMDB
+import NIO
+import Hummingbird
 
 fileprivate func validateRoot() {
 	//validate that we're root
@@ -28,7 +30,28 @@ extension NetworkV4 {
 
 fileprivate let tempDir = FileManager.default.temporaryDirectory
 
+let mainGroup = MultiThreadedEventLoopGroup(numberOfThreads:sysconf(Int32(_SC_NPROCESSORS_ONLN)))
+
 Group {
+	$0.command("server_run",
+		Argument<String>("address", description:"the address to bind to"),
+		Argument<String>("port", description:"which port shall we listen on?")
+	) { bindAddress, portString in
+		let database = try WireguardDatabase()
+		let app = HBApplication(configuration: .init(address: .hostname(bindAddress, port:Int(portString)!)))
+		app.router.get("/") { request -> HBResponse in
+			let string = "THis is a string"
+			let stringData = string.data(using:.utf8)!
+			var newBuffer = ByteBuffer()
+			stringData.withUnsafeBytes { byteBuff in
+				newBuffer.writeBytes(byteBuff)
+			}
+			return HBResponse(status:.ok, headers:["Content-Type": "plain/text"], body:.byteBuffer(newBuffer))
+		}
+		try app.start()
+		app.wait()
+	}
+	
 	$0.command("subnet_make",
 		Argument<String>("name", description:"the name of the subnet to create"),
 		Flag("non-interactive", default:false, description:"no not prompt for user input - automatically pick a subnet of prefix length 112")
@@ -56,7 +79,7 @@ Group {
 					print(Colors.Red("This subnet overlaps with another subnet. try again"))
 					exit(5)
 				}
-				suggestedSubnet = overrideNetwork
+				suggestedSubnet = overrideNetwork.maskingAddress()
 			}
 		}
 		do {
@@ -65,14 +88,14 @@ Group {
 			print(Colors.Red("a subnet named \(subnetName) already exists. please specify a different name"))
 		}
 	}
-	$0.command("subnet_list") {
+	$0.command("list") {
 		let database = try WireguardDatabase()
 		
 		for curSubnet in try database.getSubnets() {
 			print(Colors.Cyan("\(curSubnet.key)"))
 			print(Colors.Yellow("\tCIDR:\t\(curSubnet.value.cidrString)"))
 			let clients = try database.getClients(subnet:curSubnet.key)
-			for client in clients {
+			for client in clients.sorted(by: { $0.name < $1.name }) {
 				print("-\t\t\(client.name)\t\(client.address.string)")
 			}
 		}
@@ -261,12 +284,6 @@ Group {
 		
 		//ask for the client ipv4 scope
 		var ipv4Scope:NetworkV4? = nil
-		repeat {
-			print("vpn client ipv4 scope (cidr): ", terminator:"")
-			if let asString = readLine(), let asNetwork = NetworkV4(cidr:asString) {
-				ipv4Scope = asNetwork
-			}
-		} while ipv4Scope == nil
 		
 		//ask for the client ipv6 scope
 		var ipv6Scope:NetworkV6? = nil
@@ -291,7 +308,7 @@ Group {
 		if FileManager.default.fileExists(atPath:"/etc/wireguard") == false {
 			try POSIX.createDirectory(at:"/etc/wireguard", permissions:[.userRead, .userWrite])
 		}
-		
+				
 		let privateKeyURL = URL(fileURLWithPath:"/etc/wireguard/private.key")
 		let privateKeyData = privateKey.data(using:.utf8)!
 		let pkFH = try! POSIX.openFileHandle(path:privateKeyURL.path, flags:[.writeOnly, .create], permissions:[.userRead, .userWrite])
