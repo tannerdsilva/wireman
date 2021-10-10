@@ -93,7 +93,7 @@ class WireguardDatabase {
 			let ipv6_pub = try makeEnv.openDatabase(named:"ipv6_pub", flags:[.create], tx:someTrans)
 			
 			func migrateDatabase(version:UInt64?) throws -> UInt64 {
-					switch version! {
+					switch version {
 						case nil:
 							try meta.delete(key:Metadatas.ipv4_scope.rawValue, tx:someTrans)
 							return 1
