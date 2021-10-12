@@ -28,7 +28,7 @@ extension NetworkV4 {
 
 fileprivate let tempDir = FileManager.default.temporaryDirectory
 
-Group {
+Group {	
 	$0.command("subnet_make",
 		Argument<String>("name", description:"the name of the subnet to create"),
 		Flag("non-interactive", default:false, description:"no not prompt for user input - automatically pick a subnet of prefix length 112")
@@ -49,14 +49,14 @@ Group {
 		} while try suggestedSubnet != nil && database.validateNonOverlapping(subnet:suggestedSubnet!) == false
 		
 		if (nonInteractive == false) { 
-			print("define subnet cidrV6 [\(suggestedSubnet!.cidrString)]: ", terminator:"")
+			print("define new subnet cidrV6 [\(suggestedSubnet!.cidrString)]: ", terminator:"")
 			var suggestionOverride = readLine()
 			if suggestionOverride != nil && suggestionOverride!.count > 0, let overrideNetwork = NetworkV6(cidr:suggestionOverride!) {
 				guard try! database.validateNonOverlapping(subnet:overrideNetwork) == true else {
 					print(Colors.Red("This subnet overlaps with another subnet. try again"))
 					exit(5)
 				}
-				suggestedSubnet = overrideNetwork
+				suggestedSubnet = overrideNetwork.maskingAddress()
 			}
 		}
 		do {
@@ -65,15 +65,14 @@ Group {
 			print(Colors.Red("a subnet named \(subnetName) already exists. please specify a different name"))
 		}
 	}
-	$0.command("subnet_list") {
+	$0.command("list") {
 		let database = try WireguardDatabase()
-		
-		for curSubnet in try database.getSubnets() {
+		for curSubnet in try database.getSubnets().sorted(by: { $0.key > $1.key }) {
 			print(Colors.Cyan("\(curSubnet.key)"))
 			print(Colors.Yellow("\tCIDR:\t\(curSubnet.value.cidrString)"))
 			let clients = try database.getClients(subnet:curSubnet.key)
-			for client in clients {
-				print("-\t\t\(client.name)\t\(client.address.string)")
+			for client in clients.sorted(by: { $0.name < $1.name }) {
+				print("-\t\t\(client.name)\t\(client.address6.string)\t\(client.address4?.string)")
 			}
 		}
 	}
@@ -81,7 +80,7 @@ Group {
 		Argument<String>("name", description:"The subnet name to delete")
 	) { snName in
 		let database = try WireguardDatabase()
-		let interface = try! database.primaryInterfaceName()
+		let interface = try database.primaryInterfaceName()
 		do {
 			let revokedClientPubs = try database.revokeSubnet(name:snName)
 			for curPubKey in revokedClientPubs {
@@ -108,6 +107,10 @@ Group {
 	$0.command("client_make") {
 		let database = try WireguardDatabase()
 		let subnets = try database.getSubnets()
+		guard subnets.count > 0 else {
+			print(Colors.Red("subnets must exist to create a client"))
+			exit(40)
+		}
 		print("Subnets configured for \(try! database.primaryInterfaceName()) ===================")
 		for sub in subnets.sorted(by: { $0.key < $1.key }) {
 			print("\t- \(sub.key)")
@@ -118,8 +121,12 @@ Group {
 			print("subnet name: ", terminator:"")
 			subnetName = readLine()
 		} while subnetName == nil || subnetName!.count == 0
-		let addressRange = subnets[subnetName!]!
-	
+		
+		guard let addressRange6 = subnets[subnetName!] else {
+			print("\(subnetName) is not a valid subnet name")
+			exit(5)
+		}
+		
 		let clientNames = Dictionary(grouping:try database.getClients(subnet:subnetName!), by: { $0.name })
 		var clientName:String? = nil
 		repeat {
@@ -127,33 +134,56 @@ Group {
 			clientName = readLine()
 		} while clientName == nil || clientName!.count == 0
 		guard clientNames[clientName!] == nil else {
-			print("this name already exists")
+			print("this client name already exists")
 			exit(9)
 		}
-	
-		var useAddress:AddressV6
+		let addressRange4 = try database.ipv4Scope().usableRange
+		let secureScope = try database.ipv4SecureScope()
+		print(Colors.Green("IPv4 secure scope: \(secureScope.cidrString)"))
+		print(Colors.Yellow("Full IPv4 scope: \(try database.ipv4Scope().cidrString)"))
+		
+		var useAddress4:AddressKit.AddressV4?
 		repeat {
-			useAddress = addressRange.range.randomAddress()
-		} while try database.validateUnused(address:useAddress)
-		print("client address [\(useAddress.string)]: ", terminator:"")
-		var clientAddressString:String? = readLine()
-		if clientAddressString != nil && clientAddressString!.count != 0, let parseIt = AddressV6(clientAddressString!) {
-			guard addressRange.contains(parseIt) else {
+			useAddress4 = addressRange4.randomAddress()
+		} while try database.isAddress4Used(useAddress4!) && secureScope.contains(useAddress4!) == false
+		print("client address v4 (type 'x' for none) [\(useAddress4!.string)]: ", terminator:"")
+		var clientAddressString4:String? = readLine()
+		if clientAddressString4 == "x" {
+			useAddress4 = nil
+		} else if clientAddressString4 != nil && clientAddressString4!.count != 0, let parseIt = AddressKit.AddressV4(clientAddressString4!) {
+			guard addressRange4.contains(parseIt) else {
 				print("this address is out of range for this subnet")
 				exit(12)
 			}
-			useAddress = parseIt
+			guard try database.isAddress4Used(parseIt) == false else {
+				print("the specified address is already used")
+				exit(15)
+			}
+			useAddress4 = parseIt
 		}
-	
+		
+		print(Colors.Yellow("Full IPv6 scope for \(subnetName!): \(addressRange6.cidrString)"))
+		var useAddress6:AddressV6
+		repeat {
+			useAddress6 = addressRange6.range.randomAddress()
+		} while try database.isAddress6Used(useAddress6)
+		print("client address [\(useAddress6.string)]: ", terminator:"")
+		var clientAddressString6:String? = readLine()
+		if clientAddressString6 != nil && clientAddressString6!.count != 0, let parseIt = AddressV6(clientAddressString6!) {
+			guard addressRange6.contains(parseIt) else {
+				print("this address is out of range for this subnet")
+				exit(12)
+			}
+			useAddress6 = parseIt
+		}
+
 		print("keepalive? [y/n]: ", terminator:"")
 		let shouldKeepalive = readLine()!.lowercased() == "y"
 	
-		print("generating private key")
 		let privateKey = try! Command(bash:"wg genkey").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
-		print("generating public key")
 		let publicKey = try! Command(bash:"echo \(privateKey) | wg pubkey").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
-		print("generating psk")
 		let psk = try! Command(bash:"wg genpsk").runSync().stdout.first!
+		
 		let pskString = String(data:psk, encoding:.utf8)!
 		let pskPath = tempDir.appendingPathComponent(String.random())
 		try psk.write(to:pskPath)
@@ -163,21 +193,30 @@ Group {
 		print("\n\n----------------------------\n\n")
 		var buildConfig = "[Interface]\n"
 		buildConfig += "PrivateKey = \(privateKey)\n"
-		buildConfig += "Address = \(useAddress.string)/128\n\n"
+		buildConfig += "Address = \(useAddress6.string)/128\n"
+		if (useAddress4 != nil) {
+			buildConfig += "Address = \(useAddress4!.string)/32\n"
+		}
 		buildConfig += "[Peer]\n"
 		buildConfig += "PublicKey = \(try database.getServerPublicKey())\n"
 		buildConfig += "PresharedKey = \(pskString)\n"
-		buildConfig += "AllowedIPs = \(try database.ipv6Scope().cidrString)\n"
+		if (useAddress4 != nil) {
+			buildConfig += "AllowedIPs = \(try database.ipv4Scope().maskingAddress().cidrString)\n"
+		}
+		buildConfig += "AllowedIPs = \(try database.ipv6Scope().maskingAddress().cidrString)\n"
 		buildConfig += "Endpoint = \(try database.getPublicEndpointDomain())\n"
 		if (shouldKeepalive) {
 			buildConfig += "PersistentKeepalive = 25"
 		}
 	
-		print(buildConfig)
-		print("\n\n")
-	
 		let interface = try database.primaryInterfaceName()
-		if try Command(command:"/usr/bin/wg set \(interface) peer \(publicKey) allowed-ips \(useAddress.string)/128 preshared-key \(pskPath.path)")!.runSync().succeeded == false {
+		let commandString:String
+		if useAddress4 == nil {
+			commandString = "/usr/bin/wg set \(interface) peer \(publicKey) allowed-ips \(useAddress6.string)/128 preshared-key \(pskPath.path)"
+		} else {
+			commandString = "/usr/bin/wg set \(interface) peer \(publicKey) allowed-ips \(useAddress6.string)/128,\(useAddress4!.string)/32 preshared-key \(pskPath.path)"
+		}
+		if try Command(command:commandString)!.runSync().succeeded == false {
 			print("!!failed to set new config with /usr/bin/wg")
 			exit(15)
 		}
@@ -186,8 +225,18 @@ Group {
 			exit(8)
 		}
 		
-		let newClientInfo = WireguardDatabase.ClientInfo(name:clientName!, subnet:subnetName!, address:useAddress, publicKey:publicKey)
-		try! database.makeClient(newClientInfo)
+		let newClientInfo = WireguardDatabase.ClientInfo(name:clientName!, subnet:subnetName!, address4:useAddress4, address6:useAddress6, publicKey:publicKey)
+		
+		do {
+			try database.makeClient(newClientInfo)
+		} catch _ {
+			try Command(command:"/usr/bin/wg set \(interface) peer \(publicKey) remove")!.runSync()
+			try Command(bash:"/usr/bin/wg-quick save \(interface)").runSync().succeeded == false
+			print("failed to save client info to database")
+		}
+		
+		print(buildConfig)
+		print("\n\n")
 	}
 	
 	$0.command("client_revoke",
@@ -227,7 +276,7 @@ Group {
 
 	$0.command("initialize") {
 		//validate that the database is new
-		let database = try WireguardDatabase()
+		let database = try! WireguardDatabase()
 		guard database.needsInitialConfiguration == true else {
 			print(Colors.Red("there is already a server configured. please delete the database at \(WireguardDatabase.databasePath()) to run this command"))
 			exit(6)
@@ -267,7 +316,15 @@ Group {
 				ipv4Scope = asNetwork
 			}
 		} while ipv4Scope == nil
-		
+
+		var ipv4SecureScope:NetworkV4? = nil
+		repeat {
+			print("vpn client ipv4 SECURE scope (cidr): ", terminator:"")
+			if let asString = readLine(), let asNetwork = NetworkV4(cidr:asString) {
+				ipv4SecureScope = asNetwork
+			}
+		} while ipv4SecureScope == nil
+
 		//ask for the client ipv6 scope
 		var ipv6Scope:NetworkV6? = nil
 		repeat {
@@ -285,13 +342,15 @@ Group {
 		var buildConfig = ""
 		buildConfig += "[Interface]\n"
 		buildConfig += "ListenPort = \(publicListenPort!)\n"
+		buildConfig += "Address = \(ipv4Scope!.cidrString)\n"
+		buildConfig += "Address = \(ipv6Scope!.cidrString)\n"
 		buildConfig += "PrivateKey = \(privateKey)\n"
 		let configData = buildConfig.data(using:.utf8)!
 		
 		if FileManager.default.fileExists(atPath:"/etc/wireguard") == false {
 			try POSIX.createDirectory(at:"/etc/wireguard", permissions:[.userRead, .userWrite])
 		}
-		
+				
 		let privateKeyURL = URL(fileURLWithPath:"/etc/wireguard/private.key")
 		let privateKeyData = privateKey.data(using:.utf8)!
 		let pkFH = try! POSIX.openFileHandle(path:privateKeyURL.path, flags:[.writeOnly, .create], permissions:[.userRead, .userWrite])
@@ -309,7 +368,7 @@ Group {
 		try confFH.writeFileHandle(buildConfig)
 		confFH.closeFileHandle()
 		
-		try! database.assignInitialConfiguration(primaryInterface:interfaceName!, publicEndpoint:endpoint!, publicListenPort:publicListenPort!, ipv4Scope:ipv4Scope!, ipv6Scope:ipv6Scope!, publicKey:publicKey)
+		try! database.assignInitialConfiguration(primaryInterface:interfaceName!, publicEndpoint:endpoint!, publicListenPort:publicListenPort!, ipv4Scope:ipv4Scope!, ipv4SecureScope:ipv4SecureScope!, ipv6Scope:ipv6Scope!, publicKey:publicKey)
 		
 		try! Command(bash:"systemctl enable wg-quick@\(interfaceName!)").runSync()
 		try! Command(bash:"systemctl start wg-quick@\(interfaceName!)").runSync()

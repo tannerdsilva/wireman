@@ -12,7 +12,8 @@ let package = Package(
 		.package(url:"https://github.com/tannerdsilva/SwiftSlash.git", .exact("2.2.2")),
 		.package(url:"https://github.com/tannerdsilva/RapidLMDB.git", .exact("0.9.29")),
 		.package(url:"https://github.com/tannerdsilva/AddressKit.git", .exact("1.1.0")),
-		.package(url:"https://github.com/tannerdsilva/TToolkit.git", .exact("1.7.0"))
+		.package(url:"https://github.com/tannerdsilva/TToolkit.git", .exact("1.7.0")),
+		.package(url:"https://github.com/hummingbird-project/hummingbird.git", .exact("0.12.0"))
     ],
     targets: [
         // Targets are the basic building blocks of a package. A target can define a module or a test suite.
@@ -24,7 +25,8 @@ let package = Package(
 			.product(name:"Commander", package:"Commander"),
 			.product(name:"RapidLMDB", package:"RapidLMDB"),
 			.product(name:"AddressKit", package:"AddressKit"),
-			.product(name:"TToolkit", package:"TToolkit")
+			.product(name:"TToolkit", package:"TToolkit"),
+			.product(name:"Hummingbird", package:"hummingbird")
 		]),
         .testTarget(
             name: "wiremanTests",
