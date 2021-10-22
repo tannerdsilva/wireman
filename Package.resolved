@@ -24,7 +24,16 @@
         "repositoryURL": "https://github.com/tannerdsilva/Cepoll.git",
         "state": {
           "branch": null,
-          "revision": "8082c69e7ab97849a3f1f26f64d8bcfbcd5e750d",
+          "revision": "c9b927b023908081e0ac0bef3966f501a8414480",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "package": "Cfork",
+        "repositoryURL": "https://github.com/tannerdsilva/Cfork.git",
+        "state": {
+          "branch": null,
+          "revision": "e8d669c630392586b7ff4c3221dd03f7b83e01b9",
           "version": "1.0.0"
         }
       },
@@ -41,8 +50,8 @@
         "package": "Commander",
         "repositoryURL": "https://github.com/tannerdsilva/Commander.git",
         "state": {
-          "branch": "master",
-          "revision": "2395152956727e5d7af671cd0bd69031b768747e",
+          "branch": "async",
+          "revision": "8d5242e5f4195e3162939716ccd722d7ef789160",
           "version": null
         }
       },
@@ -177,8 +186,8 @@
         "repositoryURL": "https://github.com/tannerdsilva/SwiftSlash.git",
         "state": {
           "branch": null,
-          "revision": "8236fc6becea3c37d537c51ba89530a084ba01b6",
-          "version": "2.2.2"
+          "revision": "2ef5f592265375c10f82b6bfd4c75e5a271cf810",
+          "version": "3.0.0"
         }
       },
       {
