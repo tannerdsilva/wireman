@@ -8,8 +8,8 @@ let package = Package(
     dependencies: [
         // Dependencies declare other packages that this package depends on.
         // .package(url: /* package url */, from: "1.0.0"),
-		.package(url:"https://github.com/tannerdsilva/Commander.git", .branch("master")),
-		.package(url:"https://github.com/tannerdsilva/SwiftSlash.git", .exact("2.2.2")),
+		.package(url:"https://github.com/tannerdsilva/Commander.git", .branch("async")),
+		.package(url:"https://github.com/tannerdsilva/SwiftSlash.git", .exact("3.0.0")),
 		.package(url:"https://github.com/tannerdsilva/RapidLMDB.git", .exact("0.9.29")),
 		.package(url:"https://github.com/tannerdsilva/AddressKit.git", .exact("1.1.0")),
 		.package(url:"https://github.com/tannerdsilva/TToolkit.git", .exact("1.7.0")),
