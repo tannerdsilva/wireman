@@ -32,8 +32,11 @@ struct MainRun {
 		let tempDir = FileManager.default.temporaryDirectory
 		
 		let whichWg = try await Command(bash:"which wg").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
-
-		await AsyncGroup {	
+		let whichWgQuick = try await Command(bash:"which wg-quick").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
+		await AsyncGroup {
+			$0.command("check-handshakes") {
+				
+			}
 			$0.command("subnet_make",
 				Argument<String>("name", description:"the name of the subnet to create"),
 				Flag("non-interactive", default:false, description:"no not prompt for user input - automatically pick a subnet of prefix length 112")
@@ -89,13 +92,13 @@ struct MainRun {
 				do {
 					let revokedClientPubs = try database.revokeSubnet(name:snName)
 					for curPubKey in revokedClientPubs {
-						if try await Command(command:"/usr/bin/wg set \(interface) peer \(curPubKey) remove")!.runSync().succeeded == false {
+						if try await Command(command:"\(whichWg) set \(interface) peer \(curPubKey) remove").runSync().succeeded == false {
 							print("!!failed to set new config with /usr/bin/wg")
 							exit(15)
 						}
 					}
 					if revokedClientPubs.count > 0 {
-						if try await Command(bash:"/usr/bin/wg-quick save \(interface)").runSync().succeeded == false {
+						if try await Command(command:"\(whichWgQuick) save \(interface)").runSync().succeeded == false {
 							print("!!failed to sync config")
 							exit(8)
 						}
@@ -185,9 +188,9 @@ struct MainRun {
 				print("keepalive? [y/n]: ", terminator:"")
 				let shouldKeepalive = readLine()!.lowercased() == "y"
 		
-				let privateKey = try! await Command(bash:"wg genkey").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
-				let publicKey = try! await Command(bash:"echo \(privateKey) | wg pubkey").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
-				let psk = try! await Command(bash:"wg genpsk").runSync().stdout.first!
+				let privateKey = try! await Command(command:"\(whichWg) genkey").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
+				let publicKey = try! await Command(bash:"echo \(privateKey) | \(whichWg) pubkey").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
+				let psk = try! await Command(bash:"\(whichWg) genpsk").runSync().stdout.first!
 			
 				let pskString = String(data:psk, encoding:.utf8)!
 				let pskPath = tempDir.appendingPathComponent(String.random())
@@ -217,15 +220,15 @@ struct MainRun {
 				let interface = try database.primaryInterfaceName()
 				let commandString:String
 				if useAddress4 == nil {
-					commandString = "/usr/bin/wg set \(interface) peer \(publicKey) allowed-ips \(useAddress6.string)/128 preshared-key \(pskPath.path)"
+					commandString = "\(whichWg) set \(interface) peer \(publicKey) allowed-ips \(useAddress6.string)/128 preshared-key \(pskPath.path)"
 				} else {
-					commandString = "/usr/bin/wg set \(interface) peer \(publicKey) allowed-ips \(useAddress6.string)/128,\(useAddress4!.string)/32 preshared-key \(pskPath.path)"
+					commandString = "\(whichWg) set \(interface) peer \(publicKey) allowed-ips \(useAddress6.string)/128,\(useAddress4!.string)/32 preshared-key \(pskPath.path)"
 				}
-				if try await Command(command:commandString)!.runSync().succeeded == false {
+				if try await Command(command:commandString).runSync().succeeded == false {
 					print("!!failed to set new config with /usr/bin/wg")
 					exit(15)
 				}
-				if try await Command(bash:"/usr/bin/wg-quick save \(interface)").runSync().succeeded == false {
+				if try await Command(command:"\(whichWgQuick) save \(interface)").runSync().succeeded == false {
 					print("!!failed to sync config")
 					exit(8)
 				}
@@ -235,8 +238,8 @@ struct MainRun {
 				do {
 					try database.makeClient(newClientInfo)
 				} catch _ {
-					try await Command(command:"/usr/bin/wg set \(interface) peer \(publicKey) remove")!.runSync()
-					try await Command(bash:"/usr/bin/wg-quick save \(interface)").runSync().succeeded == false
+					try await Command(command:"\(whichWg) set \(interface) peer \(publicKey) remove").runSync()
+					try await Command(command:"\(whichWgQuick) save \(interface)").runSync().succeeded == false
 					print("failed to save client info to database")
 				}
 			
@@ -268,11 +271,11 @@ struct MainRun {
 				}
 			
 				let pubKey = clients[clientName]!.first!.publicKey
-				if try await Command(command:"/usr/bin/wg set \(interface) peer \(pubKey) remove")!.runSync().succeeded == false {
+				if try await Command(command:"\(whichWg) set \(interface) peer \(pubKey) remove").runSync().succeeded == false {
 					print("!!failed to set new config with /usr/bin/wg")
 					exit(15)
 				}
-				if try await Command(bash:"/usr/bin/wg-quick save \(interface)").runSync().succeeded == false {
+				if try await Command(command:"\(whichWgQuick) save \(interface)").runSync().succeeded == false {
 					print("!!failed to sync config")
 					exit(8)
 				}
@@ -340,9 +343,9 @@ struct MainRun {
 				} while ipv6Scope == nil
 			
 				print("generating private key")
-				let privateKey = try! await Command(bash:"wg genkey").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
+				let privateKey = try! await Command(command:"\(whichWg) genkey").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
 				print("generating public key")
-				let publicKey = try! await Command(bash:"echo \(privateKey) | wg pubkey").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
+				let publicKey = try! await Command(command:"echo \(privateKey) | \(whichWg) pubkey").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
 	
 				var buildConfig = ""
 				buildConfig += "[Interface]\n"
