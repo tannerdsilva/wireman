@@ -20,24 +20,6 @@
         }
       },
       {
-        "package": "Cepoll",
-        "repositoryURL": "https://github.com/tannerdsilva/Cepoll.git",
-        "state": {
-          "branch": null,
-          "revision": "c9b927b023908081e0ac0bef3966f501a8414480",
-          "version": "1.0.0"
-        }
-      },
-      {
-        "package": "Cfork",
-        "repositoryURL": "https://github.com/tannerdsilva/Cfork.git",
-        "state": {
-          "branch": null,
-          "revision": "e8d669c630392586b7ff4c3221dd03f7b83e01b9",
-          "version": "1.0.0"
-        }
-      },
-      {
         "package": "CLMDB",
         "repositoryURL": "https://github.com/tannerdsilva/CLMDB.git",
         "state": {
@@ -50,8 +32,8 @@
         "package": "Commander",
         "repositoryURL": "https://github.com/tannerdsilva/Commander.git",
         "state": {
-          "branch": "async",
-          "revision": "7ccc407d6434e699e934ec20d784c26de4d75949",
+          "branch": "master",
+          "revision": "072ac1ced55060299b8bca99ff50181c9d1907e8",
           "version": null
         }
       },
@@ -186,8 +168,8 @@
         "repositoryURL": "https://github.com/tannerdsilva/SwiftSlash.git",
         "state": {
           "branch": null,
-          "revision": "561e52a3b884740eaa3d9178955a68b220050c51",
-          "version": "3.0.2"
+          "revision": "4eef596337a5bce89367a9ac8c48f336a21138d1",
+          "version": "3.1.0"
         }
       },
       {
