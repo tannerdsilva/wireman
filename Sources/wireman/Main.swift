@@ -72,7 +72,7 @@ struct MainRun {
 				Argument<String>("name", description:"the name of the subnet to create"),
 				Flag("non-interactive", default:false, description:"no not prompt for user input - automatically pick a subnet of prefix length 112")
 			) { subnetName, nonInteractive in
-				let database = try WireguardDatabase()
+				let database = try WireguardDatabase(getCurrentDatabasePath())
 		
 				let ipv6Scope = try database.ipv6Scope()
 			
@@ -105,7 +105,7 @@ struct MainRun {
 				}
 			}
 			$0.command("list") {
-				let database = try WireguardDatabase()
+				let database = try WireguardDatabase(getCurrentDatabasePath())
 				for curSubnet in try database.getSubnets().sorted(by: { $0.key > $1.key }) {
 					print(Colors.Cyan("\(curSubnet.key)"))
 					print(Colors.Yellow("\tCIDR:\t\(curSubnet.value.cidrString)"))
@@ -118,7 +118,7 @@ struct MainRun {
 			$0.command("subnet_delete",
 				Argument<String>("name", description:"The subnet name to delete")
 			) { snName in
-				let database = try WireguardDatabase()
+				let database = try WireguardDatabase(getCurrentDatabasePath())
 				let interface = try database.primaryInterfaceName()
 				do {
 					let revokedClientPubs = try database.revokeSubnet(name:snName)
@@ -144,7 +144,7 @@ struct MainRun {
 			}
 	
 			$0.command("client_make") {
-				let database = try WireguardDatabase()
+				let database = try WireguardDatabase(getCurrentDatabasePath())
 				let subnets = try database.getSubnets()
 				guard subnets.count > 0 else {
 					print(Colors.Red("subnets must exist to create a client"))
@@ -285,7 +285,7 @@ struct MainRun {
 				Argument<String>("subnet", description:"the subnet name that the client belongs to"),
 				Argument<String>("client name", description:"the name of the client to revoke")
 			) { subnetName, clientName in
-				let database = try WireguardDatabase()
+				let database = try WireguardDatabase(getCurrentDatabasePath())
 				let interface = try! database.primaryInterfaceName()
 				let getSubnets = try database.getSubnets()
 				guard getSubnets[subnetName] != nil else {
@@ -558,7 +558,7 @@ struct MainRun {
 				systemdFH.closeFileHandle()
 				let dbPath = getCurrentDatabasePath(home:URL(fileURLWithPath:"/var/lib/wireman"))
 				do {
-					let database = try WireguardDatabase()
+					let database = try WireguardDatabase(dbPath)
 					try! database.assignInitialConfiguration(primaryInterface:interfaceName!, publicEndpoint:endpoint!, publicListenPort:publicListenPort!, ipv4Scope:ipv4Scope!, ipv4SecureScope:ipv4SecureScope!, ipv6Scope:ipv6Scope!, publicKey:publicKey)
 				}
 				guard try! await Command(bash:"chown wireman:wireman -R /var/lib/wireman").runSync().exitCode == 0 else {

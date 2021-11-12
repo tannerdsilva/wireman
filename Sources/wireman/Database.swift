@@ -3,7 +3,6 @@ import Foundation
 import AddressKit
 import TToolkit
 
-private let dbPath = URL(fileURLWithPath:"/var/lib/wireman")
 let buildVersion:UInt64 = 2
 
 class WireguardDatabase {
@@ -14,9 +13,6 @@ class WireguardDatabase {
 		case nameExistsInSubnet
 		case addressAlreadyAssigned
 		case addressNotUsable
-	}
-	class func databasePath() -> String {
-		return dbPath.appendingPathComponent("wireman-db").path
 	}
 	enum Metadatas:String {
 		case dbVersion = "databaseVersion" //UInt64
@@ -95,11 +91,12 @@ class WireguardDatabase {
 	let clientPub_email:Database //(optional string)
 	let clientPub_createdOn:Database
 	
-	init() throws {
+	init(_ dbPath:URL) throws {
 		if FileManager.default.fileExists(atPath:dbPath.path) == false {
-			try! POSIX.createDirectory(at:dbPath.path, permissions:[.userAll, .groupAll])
+			let fh = try! POSIX.openFileHandle(path:dbPath.path, flags:[.create, .readWrite], permissions:[.userRead, .userWrite])
+			fh.closeFileHandle()
 		}
-		let makeEnv = try Environment(path:Self.databasePath(), flags:[.noSubDir])
+		let makeEnv = try Environment(path:dbPath.path, flags:[.noSubDir])
 		self.env = makeEnv
 		
 		let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
