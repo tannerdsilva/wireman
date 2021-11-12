@@ -4,7 +4,7 @@ import AddressKit
 import TToolkit
 
 private let dbPath = URL(fileURLWithPath:"/var/lib/wireman")
-let buildVersion:UInt64 = 1
+let buildVersion:UInt64 = 2
 
 class WireguardDatabase {
 	enum WireguardError:Error {
@@ -92,6 +92,9 @@ class WireguardDatabase {
 	let clientPub_clientIPv4:Database
 	let clientIPv4_clientPub:Database
 	
+	let clientPub_email:Database //(optional string)
+	let clientPub_createdOn:Database
+	
 	init() throws {
 		if FileManager.default.fileExists(atPath:dbPath.path) == false {
 			try! POSIX.createDirectory(at:dbPath.path, permissions:[.userAll, .groupAll])
@@ -112,22 +115,35 @@ class WireguardDatabase {
 			let pub_ipv4 = try makeEnv.openDatabase(named:"pub_ipv4", flags:[.create], tx:someTrans)
 			let ipv4_pub = try makeEnv.openDatabase(named:"ipv4_pub", flags:[.create], tx:someTrans)
 			
+			let pub_email = try makeEnv.openDatabase(named:"pub_email", flags:[.create], tx:someTrans)
+			let pub_create = try makeEnv.openDatabase(named:"pub_create", flags:[.create], tx:someTrans)
+			
 			func migrateDatabase(version:UInt64?) throws -> UInt64 {
-					switch version {
-						case nil:
-							return 1
-						//no other versions to handle at this time
-						default:
-							return 1
-					}
+				switch version {
+					case nil:
+						return buildVersion
+					case 1:
+						let pubNameCursor = try pub_name.cursor(tx:someTrans)
+						let pubCreateCursor = try pub_create.cursor(tx:someTrans)
+						let baseDate = Date()
+						for record in pubNameCursor {
+							do {
+								try pubCreateCursor.set(value:Date(), forKey:record.key, flags:[.noOverwrite])
+							} catch LMDBError.keyExists {}
+						}
+						return 2
+					//no other versions to handle at this time
+					default:
+						return buildVersion
+				}
 			}
-			var curVersion:UInt64? = nil
+			var curVersion:UInt64
 			repeat {
 				curVersion = try migrateDatabase(version:try? meta.get(type:UInt64.self, forKey:Metadatas.dbVersion.rawValue, tx:someTrans)!)
-				try meta.set(value:curVersion!, forKey:Metadatas.dbVersion.rawValue, tx:someTrans)
+				try meta.set(value:curVersion, forKey:Metadatas.dbVersion.rawValue, tx:someTrans)
 			} while curVersion != buildVersion
 			
-			return [meta, subName_cidrV6, pub_sub, pub_name, pub_ipv6, ipv6_pub, pub_ipv4, ipv4_pub]
+			return [meta, subName_cidrV6, pub_sub, pub_name, pub_ipv6, ipv6_pub, pub_ipv4, ipv4_pub, pub_email, pub_create]
 		}
 		
 		self.metadata = dbs[0]
@@ -138,6 +154,8 @@ class WireguardDatabase {
 		self.clientIPv6_clientPub = dbs[5]
 		self.clientPub_clientIPv4 = dbs[6]
 		self.clientIPv4_clientPub = dbs[7]
+		self.clientPub_email = dbs[8]
+		self.clientPub_createdOn = dbs[9]
 	}
 	
 	//bootstrapping
@@ -198,6 +216,8 @@ class WireguardDatabase {
 			let ip6PubCursor = try clientIPv6_clientPub.cursor(tx:someTrans)
 			let pubIP4Cursor = try clientPub_clientIPv4.cursor(tx:someTrans)
 			let ip4PubCursor = try clientIPv4_clientPub.cursor(tx:someTrans)
+			let pubEmailCursor = try clientPub_email.cursor(tx:someTrans)
+			let pubCreatedCursor = try clientPub_createdOn.cursor(tx:someTrans)
 			
 			func revoke(pubKey:Data) throws {			
 				let cliName = try cliNameCursor.get(.setKey, key:pubKey).value
@@ -215,9 +235,18 @@ class WireguardDatabase {
 					let addr4 = try pubIP4Cursor.get(.setKey, key:pubKey).value
 					try pubIP4Cursor.deleteCurrent()
 					
-					_ = try ip4PubCursor.get(.setKey, key:addr4)
+					_ = try ip4PubCursor.get(.setKey, key:addr4).value
 					try ip4PubCursor.deleteCurrent()
 				} catch LMDBError.notFound {}
+				
+				//delete email related data
+				do {
+					_ = try pubEmailCursor.get(.setKey, key:pubKey).value
+					try pubEmailCursor.deleteCurrent()
+				} catch LMDBError.notFound {}
+				
+				_ = try pubCreatedCursor.get(.setKey, key:pubKey).value
+				try pubCreatedCursor.deleteCurrent()
 			}
 			
 			for kv in subNameCursor {
@@ -237,11 +266,14 @@ class WireguardDatabase {
 	
 	//managing clients
 	struct ClientInfo:Hashable {
-		let name:String
+		let createdOn:Date
+		var name:String
 		let subnet:String
 		let address4:AddressKit.AddressV4?
 		let address6:AddressKit.AddressV6
 		let publicKey:String
+		
+		var email:String?
 		
 		func hash(into hasher:inout Hasher) {
 			hasher.combine(publicKey)
@@ -298,6 +330,12 @@ class WireguardDatabase {
 			try self.clientIPv6_clientPub.set(value:clientInfo.publicKey, forKey:clientInfo.address6, tx:someTrans)
 			try self.clientPub_clientIPv6.set(value:clientInfo.address6, forKey:clientInfo.publicKey, tx:someTrans)
 			
+			try self.clientPub_createdOn.set(value:clientInfo.createdOn, forKey:clientInfo.publicKey, tx:someTrans)
+			
+			if clientInfo.email != nil {
+				try self.clientPub_email.set(value:clientInfo.email!, forKey:clientInfo.publicKey, tx:someTrans)
+			}
+			
 			if clientInfo.address4 != nil {
 				try self.clientPub_clientIPv4.set(value:clientInfo.address4!, forKey:clientInfo.publicKey, tx:someTrans)
 				try self.clientIPv4_clientPub.set(value:clientInfo.publicKey, forKey:clientInfo.address4!, tx:someTrans)
@@ -312,6 +350,8 @@ class WireguardDatabase {
 			let cliNameCursor = try clientPub_clientName.cursor(tx:someTrans)
 			let clientPubIP6 = try clientPub_clientIPv6.cursor(tx:someTrans)
 			let clientPubIP4 = try clientPub_clientIPv4.cursor(tx:someTrans)
+			let clientEmailCursor = try clientPub_email.cursor(tx:someTrans)
+			let clientCreatedCursor = try clientPub_createdOn.cursor(tx:someTrans)
 			
 			for subRecord in subNameCursor {
 				guard let subName = String(data:subRecord.value) else {
@@ -322,17 +362,25 @@ class WireguardDatabase {
 					//fetch all the other data
 					let clientName = try cliNameCursor.get(.setKey, key:subRecord.key).value
 					let clientIP = try clientPubIP6.get(.setKey, key:subRecord.key).value
-					guard let pubKeyString = String(data:subRecord.key), let clientNameString = String(data:clientName), let clientIPStruct6 = AddressV6(data:clientIP) else {
+					let clientCreated = try clientCreatedCursor.get(.setKey, key:subRecord.key).value
+					guard let pubKeyString = String(data:subRecord.key), let clientNameString = String(data:clientName), let clientIPStruct6 = AddressV6(data:clientIP), let createdDate = Date(data:clientCreated) else {
 						throw WireguardError.internalFailure
 					}
 					
-					var ip4:AddressKit.AddressV4? = nil
+					let ip4:AddressKit.AddressV4?
 					do {
 						ip4 = AddressV4(data:try clientPubIP4.get(.setKey, key:subRecord.key).value)
 					} catch LMDBError.notFound {
 						ip4 = nil
 					}
-					buildClients.update(with:ClientInfo(name:clientNameString, subnet:subName, address4:ip4, address6:clientIPStruct6, publicKey:pubKeyString))
+					
+					let email:String?
+					do {
+						email = String(data:try clientEmailCursor.get(.setKey, key:subRecord.key).value)
+					} catch LMDBError.notFound {
+						email = nil
+					}
+					buildClients.update(with:ClientInfo(createdOn:createdDate, name:clientNameString, subnet:subName, address4:ip4, address6:clientIPStruct6, publicKey:pubKeyString, email:email))
 				}
 			}
 			return buildClients
@@ -346,13 +394,15 @@ class WireguardDatabase {
 			let ip6PubCursor = try clientIPv6_clientPub.cursor(tx:someTrans)
 			let pubIP4Cursor = try clientPub_clientIPv4.cursor(tx:someTrans)
 			let ip4PubCursor = try clientIPv4_clientPub.cursor(tx:someTrans)
-
+			let pubEmailCursor = try clientPub_email.cursor(tx:someTrans)
+			let pubCreatedOn = try clientPub_createdOn.cursor(tx:someTrans)
+			
 			_ = try subNameCursor.get(.setKey, key:pubKey)
 			try subNameCursor.deleteCurrent()
 			
 			let cliName = try cliNameCursor.get(.setKey, key:pubKey).value
 			try cliNameCursor.deleteCurrent()
-						
+			
 			let addr6 = try pubIP6Cursor.get(.setKey, key:pubKey).value
 			try pubIP6Cursor.deleteCurrent()
 			
@@ -366,7 +416,15 @@ class WireguardDatabase {
 				
 				_ = try ip4PubCursor.get(.setKey, key:addr4)
 				try ip4PubCursor.deleteCurrent()
-			} catch LMDBError.notFound {}			
+			} catch LMDBError.notFound {}
+			
+			do {
+				_ = try pubEmailCursor.get(.setKey, key:pubKey)
+				try pubEmailCursor.deleteCurrent()
+			} catch LMDBError.notFound {}
+			
+			_ = try pubCreatedOn.get(.setKey, key:pubKey).value
+			try pubCreatedOn.deleteCurrent()
 		}
 	}	
 
