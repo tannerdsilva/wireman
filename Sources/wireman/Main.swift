@@ -262,7 +262,7 @@ struct MainRun {
 					print("!!failed to set new config with /usr/bin/wg")
 					exit(15)
 				}
-				if try await Command(bash:"\(whichWgQuick) save \(interface)").runSync().succeeded == false {
+				if try await Command(bash:"\(whichSudo) \(whichWgQuick) save \(interface)").runSync().succeeded == false {
 					print("!!failed to sync config")
 					exit(8)
 				}
