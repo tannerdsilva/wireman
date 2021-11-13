@@ -33,10 +33,10 @@ struct MainRun {
 	static let mainGroup = MultiThreadedEventLoopGroup(numberOfThreads:4)
 	
 	static func runDaemon() async {
-//		guard getCurrentUser() == "wireman" else {
-//			print("daemon must be run as user `wireman`")
-//			return
-//		}
+		guard getCurrentUser() == "wireman" else {
+			print("daemon must be run as user `wireman`")
+			return
+		}
 		
 		await withUnsafeContinuation { usCont in
 			Task.detached { 
@@ -123,13 +123,13 @@ struct MainRun {
 				do {
 					let revokedClientPubs = try database.revokeSubnet(name:snName)
 					for curPubKey in revokedClientPubs {
-						if try await Command(command:"\(whichWg) set \(interface) peer \(curPubKey) remove").runSync().succeeded == false {
+						if try await Command(bash:"\(whichSudo) \(whichWg) set \(interface) peer \(curPubKey) remove").runSync().succeeded == false {
 							print("!!failed to set new config with /usr/bin/wg")
 							exit(15)
 						}
 					}
 					if revokedClientPubs.count > 0 {
-						if try await Command(command:"\(whichWgQuick) save \(interface)").runSync().succeeded == false {
+						if try await Command(bash:"\(whichSudo) \(whichWgQuick) save \(interface)").runSync().succeeded == false {
 							print("!!failed to sync config")
 							exit(8)
 						}
@@ -254,15 +254,15 @@ struct MainRun {
 				let interface = try database.primaryInterfaceName()
 				let commandString:String
 				if useAddress4 == nil {
-					commandString = "\(whichWg) set \(interface) peer \(publicKey) allowed-ips \(useAddress6.string)/128 preshared-key \(pskPath.path)"
+					commandString = "\(whichSudo) \(whichWg) set \(interface) peer \(publicKey) allowed-ips \(useAddress6.string)/128 preshared-key \(pskPath.path)"
 				} else {
-					commandString = "\(whichWg) set \(interface) peer \(publicKey) allowed-ips \(useAddress6.string)/128,\(useAddress4!.string)/32 preshared-key \(pskPath.path)"
+					commandString = "\(whichSudo) \(whichWg) set \(interface) peer \(publicKey) allowed-ips \(useAddress6.string)/128,\(useAddress4!.string)/32 preshared-key \(pskPath.path)"
 				}
-				if try await Command(command:commandString).runSync().succeeded == false {
+				if try await Command(bash:commandString).runSync().succeeded == false {
 					print("!!failed to set new config with /usr/bin/wg")
 					exit(15)
 				}
-				if try await Command(command:"\(whichWgQuick) save \(interface)").runSync().succeeded == false {
+				if try await Command(bash:"\(whichWgQuick) save \(interface)").runSync().succeeded == false {
 					print("!!failed to sync config")
 					exit(8)
 				}
@@ -272,8 +272,8 @@ struct MainRun {
 				do {
 					try database.makeClient(newClientInfo)
 				} catch _ {
-					try await Command(command:"\(whichWg) set \(interface) peer \(publicKey) remove").runSync()
-					try await Command(command:"\(whichWgQuick) save \(interface)").runSync().succeeded == false
+					try await Command(bash:"\(whichSudo) \(whichWg) set \(interface) peer \(publicKey) remove").runSync()
+					try await Command(bash:"\(whichSudo) \(whichWgQuick) save \(interface)").runSync().succeeded == false
 					print("failed to save client info to database")
 				}
 			
@@ -305,11 +305,11 @@ struct MainRun {
 				}
 			
 				let pubKey = clients[clientName]!.first!.publicKey
-				if try await Command(command:"\(whichWg) set \(interface) peer \(pubKey) remove").runSync().succeeded == false {
+				if try await Command(bash:"\(whichSudo) \(whichWg) set \(interface) peer \(pubKey) remove").runSync().succeeded == false {
 					print("!!failed to set new config with /usr/bin/wg")
 					exit(15)
 				}
-				if try await Command(command:"\(whichWgQuick) save \(interface)").runSync().succeeded == false {
+				if try await Command(bash:"\(whichSudo) \(whichWgQuick) save \(interface)").runSync().succeeded == false {
 					print("!!failed to sync config")
 					exit(8)
 				}
